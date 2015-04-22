@@ -25,4 +25,4 @@ This README would normally document whatever steps are necessary to get your app
 
 ### Contact ###
 
-* Kirk North <kirk.north@mail.mcgill.ca> (*admin*)
+* Kirk North <kirk.north@mail.mcgill.ca> (**admin**)
