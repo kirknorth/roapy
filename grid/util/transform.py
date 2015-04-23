@@ -41,7 +41,7 @@ def standard_refraction(radar, debug=False, verbose=False):
 
 
 def _calculate_radar_offset(
-        radar, lat_0=None, lon_0=None, alt_0=0.0, proj='lcc', datum='NAD83',
+        radar, lat_0=None, lon_0=None, alt_0=None, proj='lcc', datum='NAD83',
         ellps='GRS80', debug=False, verbose=False):
     """
     Calculate the (x, y, z) Cartesian coordinates of a radar within the an
@@ -51,15 +51,10 @@ def _calculate_radar_offset(
     ----------
     radar : Radar
         Radar object with altitude, latitude, and longitude information.
-    lat_0 : float
-        Latitude of the analysis domain origin. The default will use the radar
-        latitude as the center of the domain.
-    lon_0 : float
-        Longitude of the analysis domain origin. The default will use the radar
-        longitude as the center of the domain.
-    alt_0 : float
-        Altitude AGL of the analysis domain origin. The default is the Earth's
-        surface.
+    lat_0, lon_0, alt_0 : float
+        The latitude, longitude, and altitude AMSL of the grid origin,
+        respectively. The default uses the location of the radar as the grid
+        origin.
     proj : str
         See pyproj documentation for more information.
     datum : str
@@ -80,15 +75,17 @@ def _calculate_radar_offset(
     # TODO: revisit altitude information for consistency, e.g., AGL versus AMSL
 
     # Parse radar location data
-    radar_alt = radar.altitude['data'][0]
     radar_lat = radar.latitude['data'][0]
     radar_lon = radar.longitude['data'][0]
+    radar_alt = radar.altitude['data'][0]
 
     # Parse analysis domain origin location data
     if lat_0 is None:
         lat_0 = radar_lon
     if lon_0 is None:
         lon_0 = radar_lon
+    if alt_0 is None:
+        alt_0 = radar_alt
 
     # Create map projection
     pj = pyproj.Proj(
@@ -100,8 +97,8 @@ def _calculate_radar_offset(
     radar_z = radar_alt - alt_0
 
     if debug:
-        print 'Radar z: {:.2f} km'.format(radar_z / 1000.0)
-        print 'Radar y: {:.2f} km'.format(radar_y / 1000.0)
-        print 'Radar x: {:.2f} km'.format(radar_x / 1000.0)
+        print 'Radar z offset from origin: {:.2f} km'.format(radar_z / 1000.0)
+        print 'Radar y offset from origin: {:.2f} km'.format(radar_y / 1000.0)
+        print 'Radar x offset from origin: {:.2f} km'.format(radar_x / 1000.0)
 
     return radar_z, radar_y, radar_x
