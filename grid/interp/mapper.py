@@ -7,12 +7,17 @@ grid.interp.mapper
 import numpy as np
 
 from scipy import spatial
-from mpl_toolkits.basemap import pyproj
 
 from pyart.config import get_fillvalue, get_field_name, get_metadata
 from pyart.core import Grid
 
 from ..util import transform
+
+# TODO: smartly interpolate the time information of the radar to analysis grid
+# points. Note that the time information for a typical radar is the average or
+# median time for each ray, i.e., since the sampling of the radar is very quick
+# it is overkill to record the time information for each ray and each range
+# gate
 
 
 class Weight(object):
@@ -62,9 +67,9 @@ class Weight(object):
 
 def grid_radar(
         radar, grid_coords, weight=None, lat_0=None, lon_0=None, alt_0=None,
-        fields=None, toa=17000.0, max_range=None, k=200, leafsize=10,
-        eps=0.0, proj='lcc', datum='NAD83', ellps='GRS80', fill_value=None,
-        dist_field=None, debug=False, verbose=False):
+        fields=None, toa=17000.0, max_range=None, k=200, leafsize=10, eps=0.0,
+        proj='lcc', datum='NAD83', ellps='GRS80', fill_value=None,
+        dist_field=None, time_field=None, debug=False, verbose=False):
     """
     """
 
@@ -75,6 +80,8 @@ def grid_radar(
     # Parse field names
     if dist_field is None:
         dist_field = 'nearest_neighbor_distance'
+    if time_field is None:
+        time_field = 'radar_sampling_time'
 
     # Parse analysis domain origin
     if lat_0 is None:
@@ -228,6 +235,21 @@ def grid_radar(
         'comment': '',
         }
 
+    # Interpolate radar time data
+    # Analysis grid points are assigned the median time of the k-nearest radar
+    # gates
+    time = np.repeat(radar.time['data'], radar.ngates).reshape(
+        radar.nrays, radar.ngates).flatten()
+    fq = np.median(time[is_below_toa][ind], axis=1)
+    map_fields[time_field] = {
+        'data': fq.reshape(nz, ny, nx).astype(np.float32),
+        'standard_name': 'radar_sampling_time',
+        'long_name': 'Radar sampling time',
+        '_FillValue': None,
+        'units': radar.time['units'],
+        'calendar': radar.time['calendar'],
+        }
+
     # Create grid axes
     axes = _populate_axes(
         radar, grid_coords, lat_0=lat_0, lon_0=lon_0, alt_0=alt_0)
@@ -242,7 +264,7 @@ def _grid_radar_nearest(
         radar, grid_coords, lat_0=None, lon_0=None, alt_0=None, fields=None,
         toa=17000.0, max_range=None, leafsize=10, eps=0.0, proj='lcc',
         datum='NAD83', ellps='GRS80', fill_value=None, dist_field=None,
-        debug=False, verbose=False):
+        time_field=None, debug=False, verbose=False):
     """
     Map scanning radar data to a Cartesian analysis domain using nearest
     neighbour scheme.
@@ -301,6 +323,8 @@ def _grid_radar_nearest(
     # Parse field names
     if dist_field is None:
         dist_field = 'nearest_neighbor_distance'
+    if time_field is None:
+        time_field = 'radar_sampling_time'
 
     # Parse analysis domain origin
     if lat_0 is None:
@@ -405,7 +429,7 @@ def _grid_radar_nearest(
         n = is_far.sum()
         print 'Number of analysis points too far from radar: {}'.format(n)
 
-    # Interpolate the radar data onto the analysis domain grid
+    # Interpolate the radar field data onto the analysis domain grid
     # Populate the mapped fields dictionary
     map_fields = {}
     for field in fields:
@@ -434,6 +458,20 @@ def _grid_radar_nearest(
         'units': 'meters',
         '_FillValue': None,
         'comment': '',
+        }
+
+    # Save radar time data
+    # Analysis grid points are assigned the time of the closest radar gate
+    time = np.repeat(radar.time['data'], radar.ngates).reshape(
+        radar.nrays, radar.ngates).flatten()
+    fq = time[is_below_toa][ind]
+    map_fields[time_field] = {
+        'data': fq.reshape(nz, ny, nx).astype(np.float32),
+        'standard_name': 'radar_sampling_time',
+        'long_name': 'Radar sampling time',
+        '_FillValue': None,
+        'units': radar.time['units'],
+        'calendar': radar.time['calendar'],
         }
 
     # Create grid axes
