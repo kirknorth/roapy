@@ -1,5 +1,6 @@
 """
 """
 
-import interp
-import util
+from . import interp
+from . import util
+from . import qc
