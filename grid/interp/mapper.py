@@ -67,9 +67,10 @@ class Weight(object):
 
 def grid_radar(
         radar, grid_coords, weight=None, lat_0=None, lon_0=None, alt_0=None,
-        fields=None, toa=17000.0, max_range=None, k=200, leafsize=10, eps=0.0,
-        proj='lcc', datum='NAD83', ellps='GRS80', fill_value=None,
-        dist_field=None, time_field=None, debug=False, verbose=False):
+        fields=None, quality_index=None, toa=17000.0, max_range=None, k=200,
+        leafsize=10, eps=0.0, proj='lcc', datum='NAD83', ellps='GRS80',
+        fill_value=None, dist_field=None, time_field=None, quality_field=None,
+        debug=False, verbose=False):
     """
     """
 
@@ -82,6 +83,8 @@ def grid_radar(
         dist_field = 'nearest_neighbor_distance'
     if time_field is None:
         time_field = 'radar_sampling_time'
+    if quality_field is None:
+        quality_field = 'grid_quality_index'
 
     # Parse analysis domain origin
     if lat_0 is None:
@@ -94,6 +97,12 @@ def grid_radar(
     # Parse fields to map
     if fields is None:
         fields = radar.fields.keys()
+
+    # Parse grid quality fields to map
+    # If no fields are provided, the default is to not return any grid quality
+    # fields
+    if quality_fields is None:
+        quality_fields = []
 
     # Parse radar data objective analysis weight
     if weight is None:
@@ -130,7 +139,7 @@ def grid_radar(
     x_g = x_g[is_below_toa]
 
     # Slice radar fields below the TOA
-    # TODO: refactor this section such that the initial radar object is not
+    # TODO: refactor this section such that the input radar object is not
     # affected
     for field in fields:
         data = radar.fields[field]['data'].flatten()
@@ -139,7 +148,7 @@ def grid_radar(
     # Create k-d tree object for radar gate locations
     # Depending on the number of radar gates this can be resource intensive
     # but nonetheless should take on the order of 1 second to create
-    if debug:
+    if verbose:
         print 'Creating k-d tree instance for radar gate locations'
     tree_g = spatial.cKDTree(zip(z_g, y_g, x_g), leafsize=leafsize)
 
@@ -165,14 +174,14 @@ def grid_radar(
 
     # Query the radar gate k-d tree for the k-nearest analysis grid points
     # This is the step that consumes the most processing time
-    if debug:
+    if verbose:
         print 'Querying k-d tree for the k-nearest analysis grid points'
     dist, ind = tree_g.query(
         zip(z_a, y_a, x_a), k=k, p=2.0, eps=eps,
         distance_upper_bound=weight.cutoff_radius)
 
     # Compute distance-dependent weights
-    if debug:
+    if verbose:
         print 'Computing distance-dependent weights'
     weight.compute_weights(dist)
 
@@ -207,7 +216,7 @@ def grid_radar(
     # Populate the mapped fields dictionary
     map_fields = {}
     for field in fields:
-        if debug:
+        if verbose:
             print 'Mapping radar field: {}'.format(field)
 
         # Populate field metadata
@@ -223,15 +232,42 @@ def grid_radar(
         # Save interpolated radar field
         map_fields[field]['data'] = fq.reshape(nz, ny, nx).astype(np.float32)
 
-    # Save the nearest neighbor distances
+    # Grid quality control index
+    if quality_index is not None:
+
+        if verbose:
+            print 'Processing grid quality index: {}'.format(field)
+
+        # Define field metadata
+        map_fields[quality_field] = {
+            'standard_name': quality_field,
+            '_FillValue': None,
+            'units': 'unitless',
+            'comment': ('0 = minimum signal quality '
+                        '1 = maximum signal quality'),
+        }
+
+        # Parse radar field mask
+        is_valid = np.logical_not(radar.fields[quality_index]['data'].mask)
+        is_valid = np.ma.filled(is_valid, False).astype(np.float32)
+
+        # Distance-dependent weighted average defines the interpolation
+        # Mask analysis grid points further than the maximum (unambiguous)
+        # range
+        fq = np.ma.average(is_valid[ind], weights=weight.wq, axis=1)
+
+        # Save interpolated radar field
+        map_fields[quality_field]['data'] = fq.reshape(nz, ny, nx).astype(
+            np.float32)
+
+    # Save the nearest neighbor distances, i.e. gate-grid distances
     map_fields[dist_field] = {
         'data': dist.min(axis=1).reshape(nz, ny, nx).astype(np.float32),
         'standard_name': 'nearest_neighbor_distance',
         'long_name': 'Nearest neighbor distance',
         'valid_min': 0.0,
-        'valid_max': np.inf,
-        'units': 'meters',
         '_FillValue': None,
+        'units': 'meters',
         'comment': '',
         }
 
