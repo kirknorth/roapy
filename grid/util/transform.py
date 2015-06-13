@@ -8,13 +8,32 @@ import numpy as np
 import pyproj
 
 
-def standard_refraction(radar, debug=False, verbose=False):
+def standard_refraction(radar, offset=None, debug=False, verbose=False):
     """
     Transform radar polar coordinates to Cartesian coordinates assuming
     standard atmospheric refraction, the so-called 4/3 Earth's radius rule.
+
+    Parameters
+    ----------
+    radar : Radar
+        Py-ART radar object containing gate locations in polar coordinates.
+    offset : array_like, optional
+        Radar (z, y, x) offset relative to a specified origin. If no offset is
+        given then output Cartesian coordinates are relative to the radar.
+    debug : bool, optional
+        True to print debugging information, False to suppress.
+    verbose : bool, optional
+        True to print progress information, False to suppress.
+
+    Return
+    ------
+    coords : tuple
+        The (z, y, x) Cartesian coordinates of the radar gate locations in
+        space.
+
     """
 
-    # Effective radius of Earth
+    # Effective radius of Earth in meters
     Re = 6371.0 * 4.0 / 3.0 * 1000.0
 
     # Parse radar scan geometry
@@ -25,9 +44,7 @@ def standard_refraction(radar, debug=False, verbose=False):
 
     # Create radar coordinates mesh
     ELE, RNG = np.meshgrid(ele, rng, indexing='ij')
-    AZI, RNG = np.meshgrid(azi, rng, indexing='ij')
-
-    # Flatten radar coordinates
+    AZI, _ = np.meshgrid(azi, rng, indexing='ij')
     RNG, AZI, ELE = RNG.flatten(), AZI.flatten(), ELE.flatten()
 
     # Compute vertical height (z), arc length (s), eastward distance (x),
@@ -37,6 +54,12 @@ def standard_refraction(radar, debug=False, verbose=False):
     x = s * np.sin(AZI)
     y = s * np.cos(AZI)
 
+    # Coordinate transform defined by offset
+    if offset is not None:
+        z += offset[0]
+        y += offset[1]
+        x += offset[2]
+
     return z, y, x
 
 
@@ -45,16 +68,22 @@ def _calculate_radar_offset(
         ellps='GRS80', debug=False, verbose=False):
     """
     Calculate the (x, y, z) Cartesian coordinates of a radar within the an
-    analysis domain centered at the specified latitude and longitude.
+    analysis domain centered at the specified latitude, longitude, and
+    altitude.
 
     Parameters
     ----------
     radar : Radar
-        Radar object with altitude, latitude, and longitude information.
-    lat_0, lon_0, alt_0 : float
-        The latitude, longitude, and altitude AMSL of the grid origin,
-        respectively. The default uses the location of the radar as the grid
-        origin.
+        Py-ART radar object with altitude, latitude, and longitude information.
+    lat_0 : float, optional
+        The latitude of the grid origin. The default uses the radar's latitude
+        as the grid origin.
+    lon_0 : float, optional
+        The longitude of the grid origin. The default uses the radar's
+        longitude as the grid origin.
+    alt_0 : float, optional
+        The altitude AMSL of the grid origin. The default uses the radar's
+        altitude as the grid origin.
     proj : str
         See pyproj documentation for more information.
     datum : str
@@ -87,7 +116,7 @@ def _calculate_radar_offset(
     if alt_0 is None:
         alt_0 = radar_alt
 
-    # Create map projection
+    # Define the map projection
     pj = pyproj.Proj(
         proj=proj, lat_0=lat_0, lon_0=lon_0, x_0=0.0, y_0=0.0, datum=datum,
         ellps=ellps)
