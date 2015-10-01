@@ -19,30 +19,35 @@ class Weight(object):
     volume is defined by the same coordinates in space, e.g., similar range
     gates, azimuths, and elevation angles.
 
-    Parameters
+    Attributes
     ----------
     func : callable, optional
         Function defining objective analysis weight. The default weighting
         function is an isotropic Barnes distance-dependent weight with constant
         smoothing parameter.
-    cutoff_radius : float, optional
-        The cutoff radius in meters used when querying a kd-tree. A small value
-        may increase processing time but produce poor mapping results.
     data_spacing : float, optional
-        The gate data spacing in meters used to define the constant smoothing
-        parameter of an isotropic Barnes weight. Only applicable if the default
-        weighting function is used.
+        The data spacing of radar gates in meters used to define the constant
+        smoothing parameter of an isotropic Barnes weight. Only applicable if
+        the default weighting function is used. For most radar scans this value
+        is actually a function of range and elevation, but for most practical
+        applications is assumed constant.
     kappa_star : float, optional
         The nondimensional smoothing parameter described in Trapp and Doswell
         (2000). Only applicable for the default weighting function.
+    cutoff_radius : float, optional
+        The cutoff radius in meters used when querying a kd-tree. A small value
+        may increase processing time but produce poor mapping results. See
+        SciPy documentation for more information.
     k : int, optional
-        The number of nearest neighbours to return when querying a kd-tree.
+        The number of nearest neighbours to return when querying a kd-tree. The
+        default will return the closest 100 neighbours. Note that for large
+        values (e.g., 400+ neighbours), computer memory resources can become
+        strained, so caution is advised. However, for typical PPI radar scans,
+        this value should, at minimum, be larger than 300. See SciPy
+        documentation for more information.
     leafsize : int, optional
         The number of points at which kd-tree algorithm switches over to brute-
-        force.
-
-    Attributes
-    ----------
+        force. See SciPy documentation for more information.
     kappa : float, optional
         The constant smoothing parameter described in Trapp and Doswell (2000)
         which defines an isotropic Barnes weight. This parameter is derived
@@ -50,9 +55,13 @@ class Weight(object):
         the default weighting function.
     dists : array_like
 
+    References
+    ----------
+
+
     """
     def __init__(self, func=None, cutoff_radius=np.inf, kappa_star=0.5,
-                 data_spacing=1220.0, k=50, leafsize=10):
+                 data_spacing=1220.0, k=100, leafsize=10):
         """ Initialize. """
 
         # Default distance-dependent weight parameters
@@ -86,8 +95,9 @@ class Weight(object):
         self.y_ref = None
         self.x_ref = None
 
-    def create_radar_tree(self, coords, replace_existing=True, debug=False,
-                       verbose=False):
+
+    def create_radar_tree(
+            self, coords, replace_existing=True, debug=False, verbose=False):
         """
         Create a radar kd-tree instance.
 
@@ -158,7 +168,7 @@ class Weight(object):
 
         return dists, inds
 
-    def requery(self, rtol=1.0e-15, atol=50.0, verbose=True):
+    def requery(self, rtol=1.0e-15, atol=20.0, verbose=True):
         """
         Determine whether or not the radar kd-tree needs to be requeried. The
         kd-tree does not need to be requeried if the previous nearest neighbour
@@ -193,7 +203,10 @@ class Weight(object):
                 return True
 
             # Second check: similar gate locations and ordering
-            if not np.all(np.isclose(x_ref, x_g, rtol=rtol, atol=atol)):
+            x_close = np.allclose(x_ref, x_g, rtol=rtol, atol=atol)
+            y_close = np.allclose(y_ref, y_g, rtol=rtol, atol=atol)
+            z_close = np.allclose(z_ref, z_g, rtol=rtol, atol=atol)
+            if not x_close or not y_close or not z_close :
                 if verbose:
                     print 'Radar volumes are ordered differently'
                 return True
@@ -215,7 +228,7 @@ class Weight(object):
         ----------
         dists : array_like
             Gate-grid distances in meters.
-        test : bool, optional
+        store : bool, optional
             True to store distance-dependent weights, False otherwise. When
             doing any testing of distance-dependent weights, e.g., checking the
             distance the weight vanishes, this parameter should be set to
@@ -227,13 +240,16 @@ class Weight(object):
 
         return wq
 
-    def compute_distance_weight_vanishes(self, atol=1.0e-3, verbose=True):
+    def compute_distance_weight_vanishes(
+            self, rtol=1.0e-15, atol=1.0e-3, verbose=True):
         """
         Determine the distance at which the chosen objective analysis weight
         effectively vanishes.
 
         Parameters
         ----------
+        rtol : float, optional
+            The relative tolerance which defines the weight as vanishing.
         atol : float, optional
             The absolute tolerance which defines the weight as vanishing.
         verbose : bool, optional
@@ -245,7 +261,7 @@ class Weight(object):
         wq = self.compute_weights(dists, store=False)
 
         # Determine index where weight effectively vanishes
-        idx = np.isclose(wq, 0.0, rtol=1.0e-15, atol=atol).argmax()
+        idx = np.isclose(wq, 0.0, rtol=rtol, atol=atol).argmax()
         self.distance_weight_vanishes = dists[idx]
 
         if verbose:
@@ -293,6 +309,7 @@ class Weight(object):
         """
         Reset the reference gate coordinates to the current radar gate
         locations.
+
         """
         self.z_ref = self.z_g.copy()
         self.y_ref = self.y_g.copy()

@@ -17,8 +17,7 @@ from ..core import Weight
 # TODO: smartly interpolate the time information of the radar to analysis grid
 # points. Note that the time information for a typical radar is the average or
 # median time for each ray, i.e., since the sampling of the radar is very quick
-# it is overkill to record the time information for each ray and each range
-# gate
+# it is overkill to record the time information at each range gate
 
 
 def grid_radar(
@@ -29,7 +28,8 @@ def grid_radar(
     """
     Grid (map) a scanning radar volume to a specified 3-D Cartesian domain.
     This routine uses a k-d tree space-partitioning data structure for the
-    efficient searching of the k-nearest neighbours.
+    efficient searching of the k-nearest neighbours. Uniform and non-uniform
+    grids are both accepted.
 
     Parameters
     ----------
@@ -41,7 +41,9 @@ def grid_radar(
         in order to specify the origin of the analysis domain.
     weight : Weight, optional
         Weight object defining the radar data objective analysis parameters
-        and storing any available kd-tree information.
+        and storing any available kd-tree information. Default uses an
+        isotropic distance-dependent Barnes weight with a constant smoothing
+        paramter.
     lat_0 : float, optional
         The latitude of the grid origin. The default uses the radar's latitude
         as the grid origin.
@@ -49,17 +51,31 @@ def grid_radar(
         The longitude of the grid origin. The default uses the radar's
         longitude as the grid origin.
     alt_0 : float, optional
-        The altitude AMSL of the grid origin. The default uses the radar's
-        altitude as the grid origin.
-    fields : list or tuple, optional
+        The altitude above mean sea level of the grid origin. The default uses
+        the radar's altitude as the grid origin.
+    fields : str or list or tuple, optional
         The list of radar fields to be gridded. The default grids all available
         radar fields.
+    toa : float, optional
+        Top of the atmosphere in meters. Radar gates above this altitude are
+        ignored. Lower heights may increase processing time substantially but
+        may also produce poor results if this value is similar or lower than
+        the top of the grid domain.
+    max_range : float, optional
+
+    proj : str, optional
+
+    datum : str, optional
+
+    ellps : str, optional
+
 
     Return
     ------
     grid : Grid
-        Py-ART grid object containing the mapped scanning radar data, axes
+        Py-ART Grid containing the mapped scanning radar data, axes
         information, and metadata.
+
     """
 
     # Parse fill value
@@ -70,11 +86,11 @@ def grid_radar(
     if sqi_field is None:
         sqi_field = get_field_name('normalized_coherent_power')
     if dist_field is None:
-        dist_field = 'nearest_neighbor_distance'
+        dist_field = get_field_name('nearest_neighbor_distance')
+    if gqi_field is None:
+        gqi_field = get_field_name('grid_quality_index')
     if time_field is None:
         time_field = 'radar_sampling_time'
-    if gqi_field is None:
-        gqi_field = 'grid_quality_index'
 
     # Parse analysis domain origin
     if lat_0 is None:
@@ -87,6 +103,8 @@ def grid_radar(
     # Parse fields to map
     if fields is None:
         fields = radar.fields.keys()
+    if isinstance(fields, str):
+        fields = [fields]
 
     # Parse radar data objective analysis weight
     if weight is None:
@@ -127,12 +145,11 @@ def grid_radar(
     y_g = y_g[is_below_toa]
     x_g = x_g[is_below_toa]
 
-    # Slice radar fields below the TOA
-    # TODO: refactor this section such that the input radar object does not
-    # change
+    # Slice radar data fields below the TOA but preserve original radar data
+    radar_data = {}
     for field in fields:
-        data = radar.fields[field]['data'].flatten()
-        radar.fields[field]['data'] = data[is_below_toa]
+        data = radar.fields[field]['data'].copy().flatten()
+        radar_data[field] = data[is_below_toa]
 
     # Parse Cartesian coordinates of analysis domain
     z_a, y_a, x_a = grid_coords
@@ -187,6 +204,10 @@ def grid_radar(
     # is not large enough
     is_bad_index = inds == weight.radar_tree.n
 
+    if debug:
+        N = np.count_nonzero(is_bad_index)
+        print 'Number of invalid indices: {}'.format(N)
+
     # Analysis grid points which are further than the specified maximum
     # range away from the radar should not be interpolated
     # This is to account for the unambiguous range of the radar, i.e., not all
@@ -204,42 +225,50 @@ def grid_radar(
     # Populate the mapped fields dictionary
     map_fields = {}
     for field in fields:
+
         if verbose:
             print 'Mapping radar field: {}'.format(field)
 
         # Populate field metadata
         map_fields[field] = get_metadata(field)
 
-        # Distance-dependent weighted average defines the interpolation
+        # Compute distance-dependent weighted average of radar field
         # Mask analysis grid points further than the maximum (unambiguous)
         # range
-        fq = np.ma.average(
-            radar.fields[field]['data'][inds], weights=wq, axis=1)
+        fq = np.ma.average(radar_data[field][inds], weights=wq, axis=1)
         fq = np.ma.masked_where(is_far, fq, copy=False)
         fq.set_fill_value(fill_value)
 
         # Save interpolated radar field
         map_fields[field]['data'] = fq.reshape(nz, ny, nx).astype(np.float32)
 
-    # Create grid quality control index (GQI) from radar signal quality index
-    # (SQI), which should have a value between [0, 1] at every radar gate
-    if verbose:
-        print 'Mapping GQI field: {}'.format(sqi_field)
+    # Create grid quality index (GQI) from radar signal quality index SQI),
+    # which should have a value between [0, 1] at every radar gate
+    if sqi_field in radar.fields:
 
-    sqi = radar.fields[sqi_field]['data'].flatten()[is_below_toa][inds]
-    fq = np.average(np.ma.filled(sqi, 0.0), weights=wq, axis=1)
-    map_fields[gqi_field] = {
-        'data': fq.reshape(nz, ny, nx).astype(np.float32),
-        'standard_name': gqi_field,
-        'long_name': 'Grid quality index',
-        '_FillValue': None,
-        'units': 'unitless',
-        'valid_min': 0.0,
-        'valid_max': 1.0,
-        'comment': '0 = minimum grid quality, 1 = maximum grid quality',
-        }
+        if verbose:
+            print 'Mapping GQI field: {}'.format(sqi_field)
 
-    # Save the gate-grid distances
+        # Parse SQI data
+        sqi = radar.fields[sqi_field]['data'].copy().flatten()
+        sqi = sqi[is_below_toa][inds]
+
+        # Compute distance-dependent weighted average of SQI field and save
+        # results
+        fq = np.average(np.ma.filled(sqi, 0.0), weights=wq, axis=1)
+        fq = np.where(is_far, 0.0, fq)
+        map_fields[gqi_field] = {
+            'data': fq.reshape(nz, ny, nx).astype(np.float32),
+            'standard_name': gqi_field,
+            'long_name': 'Grid quality index',
+            '_FillValue': None,
+            'units': 'unitless',
+            'valid_min': 0.0,
+            'valid_max': 1.0,
+            'comment': '0 = minimum grid quality, 1 = maximum grid quality',
+            }
+
+    # Save the nearest-neighbour (gate-grid) distances
     map_fields[dist_field] = {
         'data': dists.min(axis=1).reshape(nz, ny, nx).astype(np.float32),
         'standard_name': dist_field,
@@ -288,20 +317,28 @@ def _grid_radar_nearest(
     Parameters
     ----------
     radar : Radar
-        A radar object to be mapped to the Cartesian analysis grid.
-    grid_coords : tuple or list
-        The (z, y, x) coordinates of the grid in meters. These can describe
-        either a uniform or non-uniform grid.
-    lat_0, lon_0, alt_0 : float
-        The latitude, longitude, and altitude AMSL of the grid origin,
-        respectively. The default uses the location of the radar as the grid
-        origin.
-    fields : list
-        List of radar fields which will be mapped to the Cartesian analysis
-        domain. The default maps all the radar fields.
-    toa : float
-        The "top of the atmosphere" in meters. Radar gates above this height
-        are excluded.
+        Py-ART radar object containing the fields to be mapped.
+    grid_coords : list or tuple
+        The (z, y, x) Cartesian coordinates of the analysis domain the radar
+        data will be mapped onto. See the lat_0, lon_0, and alt_0 parameters
+        in order to specify the origin of the analysis domain.
+    lat_0 : float, optional
+        The latitude of the grid origin. The default uses the radar's latitude
+        as the grid origin.
+    lon_0 : float, optional
+        The longitude of the grid origin. The default uses the radar's
+        longitude as the grid origin.
+    alt_0 : float, optional
+        The altitude above mean sea level of the grid origin. The default uses
+        the radar's altitude as the grid origin.
+    fields : str or list or tuple, optional
+        The list of radar fields to be gridded. The default grids all available
+        radar fields.
+    toa : float, optional
+        Top of the atmosphere in meters. Radar gates above this altitude are
+        ignored. Lower heights may increase processing time substantially but
+        may also produce poor results if this value is similar or lower than
+        the top of the grid domain.
     max_range : float
         The "unambiguous range" of the radar. Analysis grid points which are
         not within this range from the radar are excluded.
@@ -331,6 +368,7 @@ def _grid_radar_nearest(
     grid : Grid
         Py-ART grid object containing the mapped scanning radar data, axes
         information, and metadata.
+
     """
 
     # Parse fill value
@@ -366,10 +404,11 @@ def _grid_radar_nearest(
 
     # Compute Cartesian coordinates of radar gates and apply origin offset
     z_g, y_g, x_g = transform.standard_refraction(
-        radar, debug=debug, verbose=verbose)
-    z_g = z_g + offset[0]
-    y_g = y_g + offset[1]
-    x_g = x_g + offset[2]
+        radar, offset=offset, debug=debug, verbose=verbose)
+
+    if debug:
+        N = z_g.size
+        print 'Number of radar gates before pruning: {}'.format(N)
 
     # Do not consider radar gates that are past the "top of the atmosphere"
     # This will speed up processing time during the creation of the k-d tree
@@ -385,17 +424,18 @@ def _grid_radar_nearest(
     y_g = y_g[is_below_toa]
     x_g = x_g[is_below_toa]
 
-    # Slice radar fields below the TOA
+    # Slice radar data fields below the TOA but preserve original radar data
+    radar_data = {}
     for field in fields:
-        data = radar.fields[field]['data'].flatten()
-        radar.fields[field]['data'] = data[is_below_toa]
+        data = radar.fields[field]['data'].copy().flatten()
+        radar_data[field] = data[is_below_toa]
 
     # Create k-d tree object for radar gate locations
     # Depending on the number of radar gates this can be resource intensive
     # but nonetheless should take on the order of 1 second to create
     if debug:
         print 'Creating k-d tree instance for radar gate locations'
-    tree_g = spatial.cKDTree(zip(z_g, y_g, x_g), leafsize=leafsize)
+    tree_g = cKDTree(zip(z_g, y_g, x_g), leafsize=leafsize)
 
     if debug:
         print 'tree.m = {}'.format(tree_g.m)
@@ -459,7 +499,7 @@ def _grid_radar_nearest(
         # Nearest neighbours
         # Mask analysis grid points further than the maximum (unambiguous)
         # range
-        fq = radar.fields[field]['data'][ind]
+        fq = radar_data[field][ind]
         fq = np.ma.masked_where(is_far, fq, copy=False)
 
         # Save interpolated data
@@ -502,7 +542,19 @@ def _grid_radar_nearest(
 
 
 def _populate_axes(radar, grid_coords, lat_0=None, lon_0=None, alt_0=0.0):
-    """ Populate grid axes """
+    """
+    Populate grid axes including metadata.
+
+    Parameters
+    ----------
+    radar : Radar
+
+    Returns
+    -------
+    axes : dict
+        Dictionary containing axes information including metadata.
+
+     """
 
     # Populate Cartesian axes
     x_disp = {
@@ -576,8 +628,6 @@ def _populate_axes(radar, grid_coords, lat_0=None, lon_0=None, alt_0=0.0):
         'units': radar.time['units'],
         'calendar': 'gregorian',
         }
-    base_time = {}
-    time_offset = {}
 
     return {
         'time': time,

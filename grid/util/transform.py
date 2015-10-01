@@ -8,7 +8,8 @@ import numpy as np
 import pyproj
 
 
-def standard_refraction(radar, offset=None, debug=False, verbose=False):
+def standard_refraction(radar, offset=None, flatten=True, debug=False,
+                        verbose=False):
     """
     Transform radar polar coordinates to Cartesian coordinates assuming
     standard atmospheric refraction, the so-called 4/3 Earth's radius rule.
@@ -20,6 +21,9 @@ def standard_refraction(radar, offset=None, debug=False, verbose=False):
     offset : array_like, optional
         Radar (z, y, x) offset relative to a specified origin. If no offset is
         given then output Cartesian coordinates are relative to the radar.
+    flatten : bool, optional
+        True to flatten radar gate coordinates, False to return original
+        dimensions.
     debug : bool, optional
         True to print debugging information, False to suppress.
     verbose : bool, optional
@@ -45,7 +49,8 @@ def standard_refraction(radar, offset=None, debug=False, verbose=False):
     # Create radar coordinates mesh
     ELE, RNG = np.meshgrid(ele, rng, indexing='ij')
     AZI, _ = np.meshgrid(azi, rng, indexing='ij')
-    RNG, AZI, ELE = RNG.flatten(), AZI.flatten(), ELE.flatten()
+    if flatten:
+        RNG, AZI, ELE = RNG.flatten(), AZI.flatten(), ELE.flatten()
 
     # Compute vertical height (z), arc length (s), eastward distance (x),
     # and northward distance (y)
