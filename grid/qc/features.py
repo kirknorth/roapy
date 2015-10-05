@@ -14,10 +14,19 @@ from pyart.config import get_fillvalue, get_metadata
 from . import compute_texture
 
 
-def texture_fields(
-        grid, fields=None, texture_window=(3, 3), texture_sample=5,
-        fill_value=None, debug=False, verbose=False):
+def texture_fields(grid, fields=None, texture_window=(3, 3), texture_sample=5,
+                   fill_value=None, debug=False, verbose=False):
     """
+    Compute texture fields of input grid fields. The texture is defined as the
+    standard deviation of the input field within a 2-D (x, y) window
+    surrounding each grid point.
+
+    Parameters
+    ----------
+
+    Returns
+    -------
+
     """
 
     # Parse fill value
@@ -27,11 +36,12 @@ def texture_fields(
     # Parse fields which we will compute the texture
     if fields is None:
         fields = grid.fields.keys()
+    if isinstance(fields, str):
+        fields = [fields]
 
     # Parse texture window parameters
     x_window, y_window = texture_window
 
-    # Loop over all fields
     for field in fields:
 
         if verbose:
@@ -55,19 +65,45 @@ def significant_features(
     if size_field is None:
         size_field = '{}_feature_size'.format(field)
 
-    # Parse grid axes
-    z_disp = grid.axes['z_disp']['data']
-
-    for k, height in range(z_disp.size):
-
-        print 'Here'
-
     return
 
 
 def _compute_texture(grid, field, x_window=3, y_window=3, min_sample=5,
                      fill_value=None, text_field=None, debug=False):
     """
+    Compute the texture field of an input Grid field using the prescribed 2-D
+    (x, y) texture window. A minimum sample size within this 2-D window can be
+    specified controlling the minimum sample at which the texture value is
+    considered valid.
+
+    Parameters
+    ----------
+    grid : Grid
+        Py-ART Grid containing input field.
+    field : str
+        Input radar field used to compute the texture field.
+    x_window : int, optional
+        Stencil width in the x-dimension. This parameter along with the
+        y-dimension stencil width defines the 2-D texture window.
+    y_window : int, optional
+        Stencil width in the y-dimension. This parameter along with the
+        x-dimension stencil width defines the 2-D texture window.
+    min_sample : int, optional
+        The minimum sample size within the 2-D texture window required to
+        compute the texture field at each grid point.
+    fill_value : float, optional
+        Value representing missing or bad data. Default uses the value defined
+        in the Py-ART configuration file.
+    text_field : str, optional
+        Output grid field name given to the computed texture field. Default
+        field name is the input field name with 'texture' appended at the end.
+    debug : bool, optional
+        True to print debugging information, False to suppress.
+
+    Returns
+    -------
+    Computed texture field added to the fields of the input Grid.
+
     """
 
     # Parse fill value
@@ -79,7 +115,11 @@ def _compute_texture(grid, field, x_window=3, y_window=3, min_sample=5,
         text_field = '{}_texture'.format(field)
 
     # Parse grid data
-    data = grid.fields[field]['data']
+    data = grid.fields[field]['data'].copy()
+
+    if debug:
+        N = np.count_nonzero(~np.ma.getmaskarray(data))
+        print 'Sample size of data field: {}'.format(N)
 
     # Prepare data for ingest into Fortran wrapper
     data = np.ma.filled(data, fill_value)
@@ -95,14 +135,18 @@ def _compute_texture(grid, field, x_window=3, y_window=3, min_sample=5,
             sample_size < min_sample, texture, copy=False)
 
     # Mask invalid texture values and reset fill value
-    np.ma.masked_values(texture, fill_value, atol=1.0e-8, copy=False)
+    np.ma.masked_values(texture, fill_value, atol=1.0e-5, copy=False)
     np.ma.masked_invalid(texture, copy=False)
     texture.set_fill_value(fill_value)
+
+    if debug:
+        N = np.count_nonzero(~np.ma.getmaskarray(texture))
+        print 'Sample size of texture field: {}'.format(N)
 
     # Add texture field to grid object
     field_dict = {
         'data': texture.astype(np.float32),
-        'long_name': '{} texture'.format(grid.fields[field]['long_name']),
+        'standard_name': text_field,
         '_FillValue': texture.fill_value,
         'units': grid.fields[field]['units'],
         'comment_1': ('Texture field is defined as the standard deviation '

@@ -2,6 +2,11 @@
 grid.interp.mapper
 ==================
 
+A module for mapping (interpolating) radar data to Cartesian grids. These grids
+can be uniform or non-uniform. Space-partitioning data structures known as
+kd-trees are used to efficiently search for the k-nearest neighbours to each
+radar range gate.
+
 """
 
 import numpy as np

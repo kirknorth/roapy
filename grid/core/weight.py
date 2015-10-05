@@ -2,6 +2,10 @@
 grid.core.weight
 ================
 
+A distance-dependent radar data objective analysis weight class used for
+defining the type of weight to use for mapping (interpolating) volumetric radar
+data.
+
 """
 
 import numpy as np
@@ -54,6 +58,11 @@ class Weight(object):
         from the kappa_star and data_spacing parameters. Only applicable for
         the default weighting function.
     dists : array_like
+        The nearest-neighbour (gate-grid) distances computed from querying a
+        kd-tree.
+    distance_weight_vanishes : array_like
+        Distance in meters from a radar gate in which the objective analysis
+        weighting function effectively vanishes.
 
     References
     ----------
@@ -168,6 +177,7 @@ class Weight(object):
 
         return dists, inds
 
+
     def requery(self, rtol=1.0e-15, atol=20.0, verbose=True):
         """
         Determine whether or not the radar kd-tree needs to be requeried. The
@@ -178,9 +188,13 @@ class Weight(object):
         ----------
         rtol : float, optional
             The relative tolerance used for radar gate location comparisons.
+            This value should generally be ignored and can be set very small.
         atol : float, optional
             The absolute tolerance in meters used for radar gate location
-            comparisons.
+            comparisons. Assuming the relative tolerance is very small, then if
+            all radar gate comparisons between two independent volumes are
+            within this distance apart (e.g., 20 m), then the two volumes are
+            classified as being ordered the same way.
         verbose:
             True to print progress information, False to suppress.
 
@@ -244,20 +258,26 @@ class Weight(object):
             self, rtol=1.0e-15, atol=1.0e-3, verbose=True):
         """
         Determine the distance at which the chosen objective analysis weight
-        effectively vanishes.
+        effectively vanishes. This method is really only meaningful for Barnes
+        constant smoothing parameter weighting functions.
 
         Parameters
         ----------
         rtol : float, optional
-            The relative tolerance which defines the weight as vanishing.
+            The relative tolerance which defines the weight as vanishing. This
+            value can typically be ignored and set to a very small value.
         atol : float, optional
             The absolute tolerance which defines the weight as vanishing.
         verbose : bool, optional
-            True to print distance, False to suppress.
+            True to print the vanishing distance, False to suppress.
+
         """
 
         # Define test distances and compute distance-dependent weights
-        dists = np.arange(0.0, 15050.0, 50.0)
+        if self.dists is None:
+            dists = np.arange(0.0, 15050.0, 50.0)
+        else:
+            dists = self.dists
         wq = self.compute_weights(dists, store=False)
 
         # Determine index where weight effectively vanishes
@@ -268,6 +288,7 @@ class Weight(object):
             print 'Distance weight vanishes: {:.2f} m'.format(dists[idx])
 
         return
+
 
     def _add_gate_locations(self, coords):
         """
