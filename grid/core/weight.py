@@ -6,6 +6,10 @@ A distance-dependent radar data objective analysis weight class used for
 defining the type of weight to use for mapping (interpolating) volumetric radar
 data.
 
+A key reference for radar data objective analysis and the associated distance-
+dependent weighting functions is Trapp, J. R. and Doswell III, C. A., 2000:
+Radar Data Objective Analysis. J. Atmos. Oceanic Technol., 17, 105--120.
+
 """
 
 import numpy as np
@@ -47,28 +51,38 @@ class Weight(object):
         default will return the closest 100 neighbours. Note that for large
         values (e.g., 400+ neighbours), computer memory resources can become
         strained, so caution is advised. However, for typical PPI radar scans,
-        this value should, at minimum, be larger than 300. See SciPy
-        documentation for more information.
-    leafsize : int, optional
-        The number of points at which kd-tree algorithm switches over to brute-
-        force. See SciPy documentation for more information.
+        this value should, at minimum, be larger than 300.
+    leafsize : int
+        Leaf size passed to the kd-tree defining the number of points at which
+        the algorithm switches over to brute-force. This can affect the
+        processing time during the construction and query of the kd-tree, as
+        well as the memory required to store the tree. The optimal value
+        depends on the nature of the input data. Note that this parameter will
+        not affect the results, only the processing time.
     kappa : float, optional
         The constant smoothing parameter described in Trapp and Doswell (2000)
         which defines an isotropic Barnes weight. This parameter is derived
         from the kappa_star and data_spacing parameters. Only applicable for
         the default weighting function.
-    dists : array_like
-        The nearest-neighbour (gate-grid) distances computed from querying a
-        kd-tree.
     distance_weight_vanishes : array_like
         Distance in meters from a radar gate in which the objective analysis
         weighting function effectively vanishes.
-
-    References
-    ----------
-
+    radar_tree : cKDTree
+        The cKDTree corresponding to the radar gate locations.
+    dists : array_like
+        The distances (gate-grid) the k-nearest radar gates are to each grid
+        point in the analysis domain computed from querying a kd-tree. These
+        distances are not available until the kd-tree is queried.
+    inds : array_like
+        The indices corresponding to the k-nearest radar gates to each grid
+        point in the analysis domain determined from querying a kd-tree. These
+        indices are not available until the kd-tree is queried.
+    wq : array_like
+        The distance-dependent weights corresponding to the k-nearest radar
+        gates to each grid point in the analysis domain.
 
     """
+
     def __init__(self, func=None, cutoff_radius=np.inf, kappa_star=0.5,
                  data_spacing=1220.0, k=100, leafsize=10):
         """ Initialize. """

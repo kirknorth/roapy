@@ -39,7 +39,7 @@ def grid_radar(
     Parameters
     ----------
     radar : Radar
-        Py-ART radar object containing the fields to be mapped.
+        Py-ART Radar containing the fields to be mapped.
     grid_coords : list or tuple
         The (z, y, x) Cartesian coordinates of the analysis domain the radar
         data will be mapped onto. See the lat_0, lon_0, and alt_0 parameters
@@ -67,6 +67,8 @@ def grid_radar(
         may also produce poor results if this value is similar or lower than
         the top of the grid domain.
     max_range : float, optional
+        The "unambiguous range" of the radar in meters. Analysis grid points
+        which are not within this range from the radar are excluded.
 
     proj : str, optional
 
@@ -74,6 +76,10 @@ def grid_radar(
 
     ellps : str, optional
 
+    debug : bool, optional
+        True to print debugging information, False to suppress.
+    verbose : bool, optional
+        True to print progress information, False to suppress.
 
     Return
     ------
@@ -344,16 +350,17 @@ def _grid_radar_nearest(
         ignored. Lower heights may increase processing time substantially but
         may also produce poor results if this value is similar or lower than
         the top of the grid domain.
-    max_range : float
+    max_range : float, optional
         The "unambiguous range" of the radar. Analysis grid points which are
         not within this range from the radar are excluded.
-    leafsize : int
-        Leaf size passed to the cKDTree object. This can affect the processing
-        time during the construction and query of the cKDTree, as well as the
-        memory required to store the tree. The optimal value depends on the
-        nature of the input data. Note that this parameter will not affect
-        the results, only the processing time.
-    eps : float
+    leafsize : int, optional
+        Leaf size passed to the kd-tree defining the number of points at which
+        the algorithm switches over to brute-force. This can affect the
+        processing time during the construction and query of the kd-tree, as
+        well as the memory required to store the tree. The optimal value
+        depends on the nature of the input data. Note that this parameter will
+        not affect the results, only the processing time.
+    eps : float, optional
         Return approximate nearest neighbors. The k-th returned value is
         guaranteed to be no further than (1 + eps) times the distance to
         the real k-th nearest neighbor.
@@ -371,7 +378,7 @@ def _grid_radar_nearest(
     Return
     ------
     grid : Grid
-        Py-ART grid object containing the mapped scanning radar data, axes
+        Py-ART Grid containing the mapped scanning radar data, axes
         information, and metadata.
 
     """
@@ -548,16 +555,30 @@ def _grid_radar_nearest(
 
 def _populate_axes(radar, grid_coords, lat_0=None, lon_0=None, alt_0=0.0):
     """
-    Populate grid axes including metadata.
+    Populate grid axes including metadata, adhering where possible to ARM file
+    format standards.
 
     Parameters
     ----------
     radar : Radar
+        Py-ART Radar containing valid time data.
+    grid_coords : array_like
+        The (z, y, x) Cartesian coordinates of the grid.
+    lat_0 : float, optional
+        The latitude of the grid origin. The default uses the radar's latitude
+        as the grid origin.
+    lon_0 : float, optional
+        The longitude of the grid origin. The default uses the radar's
+        longitude as the grid origin.
+    alt_0 : float, optional
+        The altitude above mean sea level of the grid origin. The default uses
+        the radar's altitude as the grid origin.
 
     Returns
     -------
     axes : dict
-        Dictionary containing axes information including metadata.
+        Dictionary compatible with Grid containing axes information including
+        axes metadata.
 
      """
 
@@ -649,7 +670,22 @@ def _populate_axes(radar, grid_coords, lat_0=None, lon_0=None, alt_0=0.0):
 
 def _populate_metadata(radar):
     """
+    Populate Grid metadata, adhering where possible to ARM file format
+    standards.
+
+    Parameters
+    ----------
+    radar : Radar
+        Py-ART Radar containing valid location data, including latitude,
+        longitude, and altitude.
+
+    Returns
+    -------
+    metadata : dict
+        Metadata dictionary compatible with Grid.
+
     """
+
     # Datastreams attribute
     datastream_description = (
         'A string consisting of the datastream(s), datastream version(s), '
