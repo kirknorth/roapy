@@ -130,7 +130,7 @@ def _populate_metadata(radar, weight=None):
         getpass.getuser(), platform.node(),
         datetime.now().strftime('%Y-%m-%dT%H:%M:%S'))
 
-    return {
+    metadata = {
         'process_version': '',
         'references': '',
         'Conventions': '',
@@ -154,3 +154,10 @@ def _populate_metadata(radar, weight=None):
         'radar_0_instrument_name': radar.metadata['instrument_name'],
         'history': history,
         }
+
+    if weight is not None:
+        metadata['k_nearest_neighors'] = weight.k
+        metadata['data_spacing'] = weight.data_spacing
+        metadata['distance_weight_vanishes'] = weight.distance_weight_vanishes
+
+    return metadata

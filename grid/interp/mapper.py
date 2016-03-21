@@ -8,13 +8,9 @@ neighbours.
 
 """
 
-import os
-import getpass
-import platform
-import numpy as np
 
+import numpy as np
 from warnings import warn
-from datetime import datetime
 from scipy.spatial import cKDTree
 
 from pyart.config import get_fillvalue, get_field_name, get_metadata
@@ -34,7 +30,8 @@ from ..core import Weight
 
 def grid_radar(radar, domain, weight=None, fields=None, gatefilter=None,
                toa=17000.0, max_range=None, legacy=False, fill_value=None,
-               debug=False, verbose=False, **kwargs):
+               dist_field=None, weight_field=None, time_field=None,
+               gqi_field=None, debug=False, verbose=False):
     """
     Map volumetric radar data to a rectilinear grid. This routine uses a k-d
     tree space-partitioning data structure for the efficient searching of the
@@ -86,13 +83,13 @@ def grid_radar(radar, domain, weight=None, fields=None, gatefilter=None,
         fill_value = get_fillvalue()
 
     # Parse field names
-    if kwargs.get('dist_field', None) is None:
+    if dist_field is None:
         dist_field = get_field_name('nearest_neighbor_distance')
-    if kwargs.get('weight_field', None) is None:
+    if weight_field is None:
         weight_field = get_field_name('nearest_neighbor_weight')
-    if kwargs.get('time_field', None) is None:
+    if time_field is None:
         time_field = get_field_name('nearest_neighbor_time')
-    if kwargs.get('gqi_field', None) is None:
+    if gqi_field is None:
         gqi_field = get_field_name('grid_quality_index')
 
     # Parse fields to map
@@ -172,23 +169,20 @@ def grid_radar(radar, domain, weight=None, fields=None, gatefilter=None,
             zip(z_g, y_g, x_g), replace_existing=True, debug=debug,
             verbose=verbose)
 
-        dists, inds = weight.query_tree(
+        _, _ = weight.query_tree(
             zip(z_a, y_a, x_a), store=True, debug=debug, verbose=verbose)
 
         # Compute distance-dependent weights
-        wq = weight.compute_weights(weight.dists, store=True, verbose=verbose)
+        _ = weight.compute_weights(weight.dists, store=True, verbose=verbose)
 
         # Reset reference radar gate coordinates
         weight._reset_gate_reference()
-
-    else:
-        dists, inds, wq = weight.dists, weight.inds, weight.wq
 
     # Missing neighbors are indicated with an index set to tree.n
     # This condition will not be met for the nearest neighbor scheme, but
     # it can be met for the Cressman and Barnes schemes if the cutoff radius
     # is not large enough
-    is_bad_index = inds == weight.radar_tree.n
+    is_bad_index = weight.inds == weight.radar_tree.n
 
     if debug:
         N = is_bad_index.sum()
@@ -211,8 +205,8 @@ def grid_radar(radar, domain, weight=None, fields=None, gatefilter=None,
             print('Mapping radar field: {}'.format(field))
 
         map_fields[field] = common.populate_field(
-            radar_data[field], inds, (nz, ny, nx), field, weights=wq,
-            mask=is_far, fill_value=None)
+            radar_data[field], weight.inds, (nz, ny, nx), field,
+            weights=weight.wq, mask=is_far, fill_value=None)
 
     # Add grid quality index field
     if gatefilter is not None:
@@ -220,7 +214,7 @@ def grid_radar(radar, domain, weight=None, fields=None, gatefilter=None,
         # Compute distance-dependent weighted average of k-nearest neighbors
         # for included gates
         sqi = gatefilter.gate_included.flatten()[is_below_toa]
-        gqi = np.average(sqi[inds], weights=wq, axis=1)
+        gqi = np.average(sqi[weight.inds], weights=weight.wq, axis=1)
         gqi[is_far] = 0.0
         map_fields[gqi_field] = get_metadata(gqi_field)
         map_fields[gqi_field]['data'] = gqi.reshape(
@@ -228,17 +222,17 @@ def grid_radar(radar, domain, weight=None, fields=None, gatefilter=None,
 
     # Add nearest neighbor distance field
     map_fields[dist_field] = get_metadata(dist_field)
-    map_fields[dist_field]['data'] = dists[:,0].reshape(
+    map_fields[dist_field]['data'] = weight.dists[:,0].reshape(
         nz, ny, nx).astype(np.float32)
 
     # Add nearest neighbor weight field
     map_fields[weight_field] = get_metadata(weight_field)
-    map_fields[weight_field]['data'] = wq[:,0].reshape(
+    map_fields[weight_field]['data'] = weight.wq[:,0].reshape(
         nz, ny, nx).astype(np.float32)
 
     # Add nearest neighbor time field
     time = radar.time['data'][:,np.newaxis].repeat(
-        radar.ngates, axis=1).flatten()[is_below_toa][inds]
+        radar.ngates, axis=1).flatten()[is_below_toa][weight.inds]
     map_fields[time_field] = get_metadata(time_field)
     map_fields[time_field]['data'] = time[:,0].reshape(
         nz, ny, nx).astype(np.float32)
@@ -259,6 +253,7 @@ def grid_radar(radar, domain, weight=None, fields=None, gatefilter=None,
 def grid_radar_nearest_neighbour(
         radar, domain, fields=None, gatefilter=None, toa=17000.0,
         max_range=None, leafsize=10, legacy=False, fill_value=None,
+        dist_field=None, weight_field=None, time_field=None, gqi_field=None,
         debug=False, verbose=False):
     """
     Map volumetric radar data to a rectilinear grid using nearest neighbour.
@@ -308,13 +303,13 @@ def grid_radar_nearest_neighbour(
         fill_value = get_fillvalue()
 
     # Parse field names
-    if kwargs.get('dist_field', None) is None:
+    if dist_field is None:
         dist_field = get_field_name('nearest_neighbor_distance')
-    if kwargs.get('weight_field', None) is None:
+    if weight_field is None:
         weight_field = get_field_name('nearest_neighbor_weight')
-    if kwargs.get('time_field', None) is None:
+    if time_field is None:
         time_field = get_field_name('nearest_neighbor_time')
-    if kwargs.get('gqi_field', None) is None:
+    if gqi_field is None:
         gqi_field = get_field_name('grid_quality_index')
 
     # Parse maximum range
