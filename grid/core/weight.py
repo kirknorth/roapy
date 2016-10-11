@@ -121,33 +121,33 @@ class Weight(object):
         self.inds = None
 
         # Default radar gate locations
-        self.z_g = None
-        self.y_g = None
-        self.x_g = None
-        self.z_ref = None
-        self.y_ref = None
-        self.x_ref = None
+        self.zg = None
+        self.yg = None
+        self.xg = None
+        self.zref = None
+        self.yref = None
+        self.xref = None
 
 
     def create_radar_tree(
             self, coords, replace_existing=True, debug=False, verbose=False):
         """
-        Create a radar kd-tree instance.
+        Create kd-tree from radar gate locations.
 
         Parameters
         ----------
-        coords : array_like
-            The (z, y, x) radar gate locations in meters to be indexed. This
-            array is not copied unless this is necessary to produce a
-            contiguous array of doubles, so modifying this data will result in
-            poor results.
+        coords : sequence of lists
+            The (z, y, x) coordinate triplet
         replace_existing : bool, optional
             True to replace any existing radar kd-tree, False to keep the
             existing kd-tree.
+
+        Other parameters
+        ----------------
         debug : bool, optional
             True to print debugging information, False to suppress.
         verbose : bool, optional
-            True to print progress information, False to suppress.
+            True to print relevant information, False to suppress.
 
         """
         if self.radar_tree is None or replace_existing:
@@ -160,6 +160,38 @@ class Weight(object):
         if debug:
             print 'tree.m = {}'.format(self.radar_tree.m)
             print 'tree.n = {}'.format(self.radar_tree.n)
+
+        return
+
+
+    def create_grid_tree(self, coords, debug=False, verbose=False):
+        """
+        Create kd-tree from grid coordinates.
+
+        Parameters
+        ----------
+        coords : sequence of array_like
+            The (z, y, x) grid coordinates in meters. All coordinates must have
+            the same shape.
+
+        Other parameters
+        ----------------
+        debug : bool, optional
+            True to print debugging information, False to suppress.
+        verbose : bool, optional
+            True to print relevant information, False to suppress.
+
+        """
+        if verbose:
+            print 'Creating k-d tree instance for grid coordinates'
+        self.grid_tree = cKDTree(
+            coords, leafsize=self.leafsize, compact_nodes=False,
+            balanced_tree=False, copy_data=False)
+
+        if debug:
+            print 'tree.m = {}'.format(self.grid_tree.m)
+            print 'tree.n = {}'.format(self.grid_tree.n)
+
 
         return
 

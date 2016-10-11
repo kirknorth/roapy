@@ -156,7 +156,7 @@ def _populate_metadata(radar, weight=None):
         }
 
     if weight is not None:
-        metadata['k_nearest_neighors'] = weight.k
+        metadata['k_nearest_neighbors'] = weight.k
         metadata['data_spacing'] = weight.data_spacing
         metadata['distance_weight_vanishes'] = weight.distance_weight_vanishes
 

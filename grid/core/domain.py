@@ -13,8 +13,10 @@ class Domain(object):
 
     Attributes
     ----------
-    x, y, z : array_like
-        Coordinates in meters defining the rectilinear grid.
+    x, y, z : ndarray
+        Axes in meters defining the rectilinear grid.
+    coordinates : tuple
+        The (z, y, x) coordinates of each vertex in the rectilinear grid.
     lat_0, lon_0, alt_0 : float
         Latitude, longitude, and altitude of the grid origin. Latitude and
         longitude should be in decimal degrees, and altitude should be meters
@@ -33,14 +35,20 @@ class Domain(object):
 
     """
 
-    def __init__(self, coords, origin, proj='lcca', datum='WGS84',
-                 ellps='WGS84', dem=None):
+    def __init__(self, axes, origin, proj='lcca', datum='WGS84', ellps='WGS84',
+                 dem=None):
         """ Initialize. """
 
-        # Grid coordinates and origin attributes
-        self.z, self.y, self.x = coords
+        # Grid axes attributes
+        self.z, self.y, self.x = [np.asarray(axis) for axis in axes]
+        self.nz, self.ny, self.nx = self.z.size, self.y.size, self.x.size
+        self.shape = (self.nz, self.ny, self.nx)
+
+        # Grid origin attributes
         self.lat_0, self.lon_0, self.alt_0 = origin
-        self.nz, self.ny, self.nx = len(self.z), len(self.y), len(self.x)
+
+        # Grid coordinates attribute
+        self._add_grid_coordinates()
 
         # Projection and geod attributes
         self.proj = pyproj.Proj(
@@ -51,12 +59,12 @@ class Domain(object):
         # GDAL dataset attribute
         self.dem = dem
 
-        # Radar offset(s) attribute
+        # Default radar offset attribute
         self.radar_offset = None
 
 
-    def radar_offset_from_origin(self, radar, debug=False):
-        """ Compute radar (x, y, z) offset from grid origin. """
+    def compute_radar_offset_from_origin(self, radar, debug=False):
+        """ Compute radar (z, y, x) offset from grid origin. """
 
         # Parse radar latitude, longitude, and altitude
         radar_lat = radar.latitude['data'][0]
@@ -72,11 +80,18 @@ class Domain(object):
         radar_z = radar_alt - self.alt_0
 
         if debug:
-            print 'Radar x in grid: {:.2f} km'.format(radar_x / 1000.0)
-            print 'Radar y in grid: {:.2f} km'.format(radar_y / 1000.0)
-            print 'Radar z in grid: {:.2f} km'.format(radar_z / 1000.0)
+            print 'Radar x offset from origin: {:.2f} m'.format(radar_x)
+            print 'Radar y offset from origin: {:.2f} m'.format(radar_y)
+            print 'Radar z offset from origin: {:.2f} m'.format(radar_z)
 
         self.radar_offset = (radar_z, radar_y, radar_x)
 
+        return
+
+
+    def _add_grid_coordinates(self):
+        """ Add (z, y, x) coordinates of each grid point. """
+        Z, Y, X = np.meshgrid(self.z, self.y, self.x, indexing='ij')
+        self.coordinates = (Z.flatten(), Y.flatten(), X.flatten())
         return
 
